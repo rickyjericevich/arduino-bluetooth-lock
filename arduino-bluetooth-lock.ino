@@ -18,33 +18,19 @@ const char* displayName = "BLELock";
 
 volatile unsigned long timeWhenSensorTriggered = -1; // holds the millis() value when the doorSensor interrupt triggers, initialized to ULONG_MAX
 
-BLEService doorService("1815"); // create 'automation io' service - can't find a more appropriate GATT service 
-
 BLEBoolCharacteristic latchCharacteristic("2AE2", BLERead | BLEIndicate | BLEWrite); // create 'latch' characteristic, allow remote device to read, indicate & write
 BLEBoolCharacteristic sensorCharacteristic("2AE2", BLERead | BLEIndicate);           // create 'sensor' characteristic, allow remote device to read & indicate
 
 void setup() {
   DEBUG_SERIAL.begin(9600);
-  
+
   while(DEBUG && !Serial); // prevents any code from running until you open the serial monitor
-  
+
+  // configure GPIO pins
   pinMode(motorLeadPos, OUTPUT);
   pinMode(motorLeadNeg, OUTPUT);
   pinMode(doorSensor, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(doorSensor), sensorChangeHandler, CHANGE);
-
-  latchCharacteristic.setValue(true); // initialize latch characteristic's value -> locked
-  latchCharacteristic.setEventHandler(BLERead, latchReadHandler);
-  latchCharacteristic.setEventHandler(BLEWritten, latchWriteHandler);
-  driveMotorForPeriod(latchCharacteristic.value(), activeMotorTime); // latch is locked in default/startup state
-
-  sensorCharacteristic.setValue(digitalRead(doorSensor)); // initialize sensor characteristic's value
-  sensorCharacteristic.setEventHandler(BLESubscribed, sensorSubscriptionHandler);
-  sensorCharacteristic.setEventHandler(BLEUnsubscribed, sensorSubscriptionHandler);
-  sensorCharacteristic.setEventHandler(BLERead, sensorReadHandler);
-  
-  doorService.addCharacteristic(latchCharacteristic);
-  doorService.addCharacteristic(sensorCharacteristic);
 
   // initialize BLE
   if (!BLE.begin()) {
@@ -54,15 +40,31 @@ void setup() {
 
   BLE.setDeviceName(displayName);
   BLE.setLocalName(displayName);
-  BLE.addService(doorService);
 
   BLE.setEventHandler(BLEConnected, blePeripheralConnectionHandler);
   BLE.setEventHandler(BLEDisconnected, blePeripheralConnectionHandler);
 
+  latchCharacteristic.setValue(true); // initialize latch characteristic's value -> locked
+  latchCharacteristic.setEventHandler(BLERead, latchReadHandler);
+  latchCharacteristic.setEventHandler(BLEWritten, latchWriteHandler);
+
+  sensorCharacteristic.setValue(digitalRead(doorSensor)); // initialize sensor characteristic's value
+  sensorCharacteristic.setEventHandler(BLESubscribed, sensorSubscriptionHandler);
+  sensorCharacteristic.setEventHandler(BLEUnsubscribed, sensorSubscriptionHandler);
+  sensorCharacteristic.setEventHandler(BLERead, sensorReadHandler);
+
+  BLEService doorService("1815"); // create 'automation io' service - can't find a more appropriate GATT service
+  doorService.addCharacteristic(latchCharacteristic);
+  doorService.addCharacteristic(sensorCharacteristic);
+
+  BLE.addService(doorService);
   BLE.setAdvertisedService(doorService); // the UUID for the service this peripheral advertises
   BLE.advertise();
 
   DEBUG_SERIAL.println(("Bluetooth device active, waiting for connections..."));
+
+  // make sure latch is in locked position at startup
+  driveMotorForPeriod(latchCharacteristic.value(), activeMotorTime);
 }
 
 void blePeripheralConnectionHandler(BLEDevice central) {
